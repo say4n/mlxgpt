@@ -1,4 +1,3 @@
-from mlx.utils import tree_unflatten
 from typing import OrderedDict
 from dataclasses import dataclass
 
@@ -144,20 +143,20 @@ class GPT2(nn.Module):
         return logits, new_cache
 
     def load_weights_from_hf_state_dict(self, state_dict: OrderedDict):
-        mlx_weights = {}
+        weights = []
 
         for k, v in state_dict.items():
             if k.startswith("transformer."):
                 k = k.replace("transformer.", "")
 
             if any(w in k for w in ["c_attn.weight", "c_proj.weight", "c_fc.weight"]):
-                mlx_weights[k] = mx.array(v).T
+                v = mx.array(v).T
             else:
-                mlx_weights[k] = mx.array(v)
+                v = mx.array(v)
 
-        mlx_weights_unflattened = tree_unflatten(mlx_weights)
+            weights.append((k, v))
 
-        self.update(mlx_weights_unflattened)
+        self.load_weights(weights, strict=True)
         self.lm_head.weight = self.wte.weight
 
     def sample_next_token(self, logits, temperature=1.0, top_k=None):
