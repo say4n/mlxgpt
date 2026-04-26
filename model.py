@@ -175,7 +175,7 @@ class GPT2(nn.Module):
 
         return mx.random.categorical(logits, axis=-1).reshape(-1, 1)
 
-    def predict(self, prompt, max_tokens=500, temperature=0.8, top_k=50):
+    def predict(self, prompt, max_tokens=500, temperature=0.8, top_k=25):
         input_ids = mx.array([self.tokenizer.encode(prompt)])
         eos_token_id = self.tokenizer.eot_token
 
@@ -183,6 +183,7 @@ class GPT2(nn.Module):
         logits, cache = self(input_ids)
         next_token = self.sample_next_token(logits, temperature, top_k)
 
+        @mx.compile
         def step(token, current_cache):
             logits, new_cache = self(token, cache=current_cache)
             next_tok = self.sample_next_token(logits, temperature, top_k)
@@ -215,7 +216,7 @@ if __name__ == "__main__":
     mlx_model.load_weights_from_hf_state_dict(hf_sd)
     del hf_sd, hf_model 
 
-    prompt = "how many rs are there in strawberry?"
+    prompt = "The history of machine learning begins"
     print(prompt, end=" >>> ")
     for text in mlx_model.predict(prompt, max_tokens=500):
         print(text, end="")
