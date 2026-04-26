@@ -71,8 +71,8 @@ class MLP(nn.Module):
 
         embed_dim = config.n_hidden_dim
 
-        self.c_fc = nn.Linear(embed_dim, 3 * embed_dim)
-        self.c_proj = nn.Linear(3 * embed_dim, embed_dim)
+        self.c_fc = nn.Linear(embed_dim, 4 * embed_dim)
+        self.c_proj = nn.Linear(4 * embed_dim, embed_dim)
         self.act = nn.GELU(approx="tanh")
 
     def __call__(self, x):
@@ -160,19 +160,32 @@ class GPT2(nn.Module):
         self.update(mlx_weights_unflattened)
         self.lm_head.weight = self.wte.weight
 
-    def predict(self, prompt, max_tokens=500):
+    def sample_next_token(self, logits, temperature=1.0, top_k=None):
+        logits = logits[:, -1, :]
+
+        if temperature <= 0:
+            return mx.argmax(logits, axis=-1, keepdims=True)
+
+        logits = logits / temperature
+
+        if top_k is not None:
+            values = mx.topk(logits, top_k, axis=-1)
+            cutoff = values[:, :1]
+            logits = mx.where(logits < cutoff, -mx.inf, logits)
+
+        return mx.random.categorical(logits, axis=-1).reshape(-1, 1)
+
+    def predict(self, prompt, max_tokens=500, temperature=0.8, top_k=50):
         input_ids = mx.array([self.tokenizer.encode(prompt)])
         eos_token_id = self.tokenizer.eot_token
 
         # Pre-fill phase (process entire prompt at once to build KV cache)
         logits, cache = self(input_ids)
-        next_token = mx.argmax(logits[:, -1, :], axis=-1, keepdims=True)
+        next_token = self.sample_next_token(logits, temperature, top_k)
 
-        # We compile the single-token generation step for massive speedups
-        @mx.compile
         def step(token, current_cache):
             logits, new_cache = self(token, cache=current_cache)
-            next_tok = mx.argmax(logits[:, -1, :], axis=-1, keepdims=True)
+            next_tok = self.sample_next_token(logits, temperature, top_k)
             return next_tok, new_cache
 
         # Generation loop
@@ -191,6 +204,7 @@ class GPT2(nn.Module):
             next_token, cache = step(next_token, cache)
             token_count += 1
 
+
 if __name__ == "__main__":
     hf_model = AutoModelForCausalLM.from_pretrained("gpt2")
     hf_sd = hf_model.state_dict()
@@ -201,7 +215,7 @@ if __name__ == "__main__":
     mlx_model.load_weights_from_hf_state_dict(hf_sd)
     del hf_sd, hf_model 
 
-    prompt = "What is ChatGPT?"
+    prompt = "how many rs are there in strawberry?"
     print(prompt, end=" >>> ")
     for text in mlx_model.predict(prompt, max_tokens=500):
         print(text, end="")
